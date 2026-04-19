@@ -21,13 +21,31 @@ fn main() {
     }
 }
 
+fn get_parts(buf: &[u8], n: usize) -> Vec<&str> {
+    let data = &buf[..n];
+    let text = std::str::from_utf8(data).unwrap();
+    let parts: Vec<&str> = text.split("\r\n").collect();
+    return parts;
+}
+
 fn handle_connection(mut stream: TcpStream) {
     let mut buf = [0u8; 512];
     loop {
         match stream.read(&mut buf) {
             Ok(0) => return,
-            Ok(_) => {
-                if stream.write_all(b"+PONG\r\n").is_err() {
+            Ok(n) => {
+                let parts = get_parts(&buf, n);
+                let command = parts.get(2).copied().unwrap_or("").to_ascii_uppercase();
+
+                let response: Vec<u8> = match command.as_str() {
+                    "ECHO" => {
+                        let arg = parts.get(4).copied().unwrap_or("");
+                        format!("${}\r\n{}\r\n", arg.len(), arg).into_bytes()
+                    }
+                    _ => b"+PONG\r\n".to_vec(),
+                };
+
+                if stream.write_all(&response).is_err() {
                     return;
                 }
             }
