@@ -10,16 +10,19 @@ fn main() {
     
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
     
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                println!("accepted new connection");
-                // send "+PONG\r\n" to the client
-                stream.write_all(b"+PONG\r\n").unwrap();
+    loop {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    println!("accepted new connection");
+                    // send "+PONG\r\n" to the client
+                    stream.write_all(b"+PONG\r\n").unwrap();
             }
             Err(e) => {
                 println!("error: {}", e);
             }
+            }
         }
+
     }
 }
