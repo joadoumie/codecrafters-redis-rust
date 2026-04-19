@@ -4,8 +4,14 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
-type Db = Arc<Mutex<HashMap<String, String>>>;
+struct Value {
+    data: String,
+    expires_at: Option<Instant>,
+}
+
+type Db = Arc<Mutex<HashMap<String, Value>>>;
 
 fn main() {
     println!("Logs from your program will appear here!");
@@ -50,14 +56,37 @@ fn handle_connection(mut stream: TcpStream, db: Db) {
                     }
                     "SET" => {
                         let key = parts.get(4).copied().unwrap_or("").to_string();
-                        let value = parts.get(6).copied().unwrap_or("").to_string();
-                        db.lock().unwrap().insert(key, value);
+                        let data = parts.get(6).copied().unwrap_or("").to_string();
+
+                        let expires_at = match parts
+                            .get(8)
+                            .copied()
+                            .map(|s| s.to_ascii_uppercase())
+                            .as_deref()
+                        {
+                            Some("PX") => parts
+                                .get(10)
+                                .and_then(|s| s.parse::<u64>().ok())
+                                .map(|ms| Instant::now() + Duration::from_millis(ms)),
+                            Some("EX") => parts
+                                .get(10)
+                                .and_then(|s| s.parse::<u64>().ok())
+                                .map(|s| Instant::now() + Duration::from_secs(s)),
+                            _ => None,
+                        };
+
+                        db.lock().unwrap().insert(key, Value { data, expires_at });
                         b"+OK\r\n".to_vec()
                     }
                     "GET" => {
                         let key = parts.get(4).copied().unwrap_or("");
-                        match db.lock().unwrap().get(key) {
-                            Some(v) => format!("${}\r\n{}\r\n", v.len(), v).into_bytes(),
+                        let mut map = db.lock().unwrap();
+                        match map.get(key) {
+                            Some(v) if v.expires_at.map_or(false, |e| Instant::now() >= e) => {
+                                map.remove(key);
+                                b"$-1\r\n".to_vec()
+                            }
+                            Some(v) => format!("${}\r\n{}\r\n", v.data.len(), v.data).into_bytes(),
                             None => b"$-1\r\n".to_vec(),
                         }
                     }
