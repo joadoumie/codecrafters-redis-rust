@@ -36,11 +36,9 @@ fn main() {
     }
 }
 
-fn get_parts(buf: &[u8], n: usize) -> Vec<&str> {
-    let data = &buf[..n];
-    let text = std::str::from_utf8(data).unwrap();
-    let parts: Vec<&str> = text.split("\r\n").collect();
-    parts
+fn get_parts(buf: &[u8], n: usize) -> Option<Vec<&str>> {
+    let text = std::str::from_utf8(&buf[..n]).ok()?;
+    Some(text.split("\r\n").collect())
 }
 
 fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
@@ -49,7 +47,15 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
         match stream.read(&mut buf) {
             Ok(0) => return,
             Ok(n) => {
-                let parts = get_parts(&buf, n);
+                let parts = match get_parts(&buf, n) {
+                    Some(p) => p,
+                    None => {
+                        if stream.write_all(b"-ERR invalid request\r\n").is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                };
                 let command = parts.get(2).copied().unwrap_or("").to_ascii_uppercase();
 
                 let response: Vec<u8> = match command.as_str() {
@@ -85,7 +91,7 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
                         let key = parts.get(4).copied().unwrap_or("");
                         let mut map = db.lock().unwrap();
                         match map.get(key) {
-                            Some(v) if v.expires_at.map_or(false, |e| Instant::now() >= e) => {
+                            Some(v) if v.expires_at.is_some_and(|e| Instant::now() >= e) => {
                                 map.remove(key);
                                 b"$-1\r\n".to_vec()
                             }
@@ -95,11 +101,15 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
                     }
                     "RPUSH" => {
                         let key = parts.get(4).copied().unwrap_or("").to_string();
-                        let data = parts.get(6).copied().unwrap_or("").to_string();
-
+                        let mut i = 6;
                         let mut map = list.lock().unwrap();
-                        let entry = map.entry(key).or_insert_with(Vec::new);
-                        entry.push(data);
+                        let entry = map.entry(key).or_default();
+                        while i < parts.len() {
+                            let data = parts.get(i).copied().unwrap_or("").to_string();
+                            entry.push(data);
+                            i += 2;
+                        }
+
                         let len = entry.len();
 
                         format!(":{}\r\n", len).into_bytes()
