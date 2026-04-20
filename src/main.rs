@@ -114,6 +114,32 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
 
                         format!(":{}\r\n", len).into_bytes()
                     }
+                    "LRANGE" => {
+                        let key = parts.get(4).copied().unwrap_or("");
+                        let start: i64 = parts.get(6).copied().unwrap_or("0").parse().unwrap_or(0);
+                        let stop: i64 = parts.get(8).copied().unwrap_or("0").parse().unwrap_or(0);
+
+                        let map = list.lock().unwrap();
+                        let items: &[String] = match map.get(key) {
+                            Some(v) => v,
+                            None => &[],
+                        };
+
+                        let len = items.len() as i64;
+                        if start >= len || start > stop {
+                            b"*0\r\n".to_vec()
+                        } else {
+                            let end = std::cmp::min(stop, len - 1);
+                            let slice = &items[start as usize..=end as usize];
+                            let mut out = format!("*{}\r\n", slice.len()).into_bytes();
+                            for s in slice {
+                                out.extend_from_slice(
+                                    format!("${}\r\n{}\r\n", s.len(), s).as_bytes(),
+                                );
+                            }
+                            out
+                        }
+                    }
                     _ => b"+PONG\r\n".to_vec(),
                 };
 
