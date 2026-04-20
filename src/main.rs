@@ -12,19 +12,22 @@ struct Value {
 }
 
 type Db = Arc<Mutex<HashMap<String, Value>>>;
+type List = Arc<Mutex<HashMap<String, Vec<String>>>>;
 
 fn main() {
     println!("Logs from your program will appear here!");
 
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
     let db: Db = Arc::new(Mutex::new(HashMap::new()));
+    let list: List = Arc::new(Mutex::new(HashMap::new()));
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("accepted new connection");
                 let db = Arc::clone(&db);
-                thread::spawn(move || handle_connection(stream, db));
+                let list = Arc::clone(&list);
+                thread::spawn(move || handle_connection(stream, db, list));
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -40,7 +43,7 @@ fn get_parts(buf: &[u8], n: usize) -> Vec<&str> {
     parts
 }
 
-fn handle_connection(mut stream: TcpStream, db: Db) {
+fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
     let mut buf = [0u8; 512];
     loop {
         match stream.read(&mut buf) {
@@ -89,6 +92,17 @@ fn handle_connection(mut stream: TcpStream, db: Db) {
                             Some(v) => format!("${}\r\n{}\r\n", v.data.len(), v.data).into_bytes(),
                             None => b"$-1\r\n".to_vec(),
                         }
+                    }
+                    "RPUSH" => {
+                        let key = parts.get(4).copied().unwrap_or("").to_string();
+                        let data = parts.get(6).copied().unwrap_or("").to_string();
+
+                        let mut map = list.lock().unwrap();
+                        let entry = map.entry(key).or_insert_with(Vec::new);
+                        entry.push(data);
+                        let len = entry.len();
+
+                        format!(":{}\r\n", len).into_bytes()
                     }
                     _ => b"+PONG\r\n".to_vec(),
                 };
