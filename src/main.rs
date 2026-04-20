@@ -41,6 +41,14 @@ fn get_parts(buf: &[u8], n: usize) -> Option<Vec<&str>> {
     Some(text.split("\r\n").collect())
 }
 
+fn format_index(index: i64, len: i64) -> i64 {
+    if index < 0 {
+        (len + index).max(0)
+    } else {
+        index.min(len - 1)
+    }
+}
+
 fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
     let mut buf = [0u8; 512];
     loop {
@@ -126,18 +134,23 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
                         };
 
                         let len = items.len() as i64;
-                        if start >= len || start > stop {
+                        if len == 0 {
                             b"*0\r\n".to_vec()
                         } else {
-                            let end = std::cmp::min(stop, len - 1);
-                            let slice = &items[start as usize..=end as usize];
-                            let mut out = format!("*{}\r\n", slice.len()).into_bytes();
-                            for s in slice {
-                                out.extend_from_slice(
-                                    format!("${}\r\n{}\r\n", s.len(), s).as_bytes(),
-                                );
+                            let start = format_index(start, len);
+                            let stop = format_index(stop, len);
+                            if start > stop {
+                                b"*0\r\n".to_vec()
+                            } else {
+                                let slice = &items[start as usize..=stop as usize];
+                                let mut out = format!("*{}\r\n", slice.len()).into_bytes();
+                                for s in slice {
+                                    out.extend_from_slice(
+                                        format!("${}\r\n{}\r\n", s.len(), s).as_bytes(),
+                                    );
+                                }
+                                out
                             }
-                            out
                         }
                     }
                     _ => b"+PONG\r\n".to_vec(),
