@@ -127,6 +127,12 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
                             None => b"$-1\r\n".to_vec(),
                         }
                     }
+                    "LLEN" => {
+                        let key = parts.get(4).copied().unwrap_or("");
+                        let map = list.lock().unwrap();
+                        let len = map.get(key).map(|v| v.len()).unwrap_or(0);
+                        format!(":{}\r\n", len).into_bytes()
+                    }
                     "RPUSH" => insert_into_vector(false, &parts, &list),
                     "LPUSH" => insert_into_vector(true, &parts, &list),
                     "LRANGE" => {
