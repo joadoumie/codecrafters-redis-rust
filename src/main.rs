@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{string, thread};
 
 struct Value {
     data: String,
@@ -115,6 +115,21 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
                         while i < parts.len() {
                             let data = parts.get(i).copied().unwrap_or("").to_string();
                             entry.push(data);
+                            i += 2;
+                        }
+
+                        let len = entry.len();
+
+                        format!(":{}\r\n", len).into_bytes()
+                    }
+                    "LPUSH" => {
+                        let key = parts.get(4).copied().unwrap_or("").to_string();
+                        let mut i = 6;
+                        let mut map = list.lock().unwrap();
+                        let entry = map.entry(key).or_default();
+                        while i < parts.len() {
+                            let data = parts.get(i).copied().unwrap_or("").to_string();
+                            entry.insert(0, data);
                             i += 2;
                         }
 
