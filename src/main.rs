@@ -49,6 +49,26 @@ fn format_index(index: i64, len: i64) -> i64 {
     }
 }
 
+fn insert_into_vector(prepend: bool, parts: &Vec<&str>, list: &List) -> std::vec::Vec<u8> {
+    let key = parts.get(4).copied().unwrap_or("").to_string();
+    let mut i = 6;
+    let mut map = list.lock().unwrap();
+    let entry = map.entry(key).or_default();
+    while i < parts.len() {
+        let data = parts.get(i).copied().unwrap_or("").to_string();
+        if prepend {
+            entry.insert(0, data);
+        } else {
+            entry.push(data);
+        }
+        i += 2;
+    }
+
+    let len = entry.len();
+
+    format!(":{}\r\n", len).into_bytes()
+}
+
 fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
     let mut buf = [0u8; 512];
     loop {
@@ -107,36 +127,8 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
                             None => b"$-1\r\n".to_vec(),
                         }
                     }
-                    "RPUSH" => {
-                        let key = parts.get(4).copied().unwrap_or("").to_string();
-                        let mut i = 6;
-                        let mut map = list.lock().unwrap();
-                        let entry = map.entry(key).or_default();
-                        while i < parts.len() {
-                            let data = parts.get(i).copied().unwrap_or("").to_string();
-                            entry.push(data);
-                            i += 2;
-                        }
-
-                        let len = entry.len();
-
-                        format!(":{}\r\n", len).into_bytes()
-                    }
-                    "LPUSH" => {
-                        let key = parts.get(4).copied().unwrap_or("").to_string();
-                        let mut i = 6;
-                        let mut map = list.lock().unwrap();
-                        let entry = map.entry(key).or_default();
-                        while i < parts.len() {
-                            let data = parts.get(i).copied().unwrap_or("").to_string();
-                            entry.insert(0, data);
-                            i += 2;
-                        }
-
-                        let len = entry.len();
-
-                        format!(":{}\r\n", len).into_bytes()
-                    }
+                    "RPUSH" => insert_into_vector(false, &parts, &list),
+                    "LPUSH" => insert_into_vector(true, &parts, &list),
                     "LRANGE" => {
                         let key = parts.get(4).copied().unwrap_or("");
                         let start: i64 = parts.get(6).copied().unwrap_or("0").parse().unwrap_or(0);
