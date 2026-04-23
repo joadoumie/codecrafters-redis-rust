@@ -133,6 +133,17 @@ fn handle_connection(mut stream: TcpStream, db: Db, list: List) {
                         let len = map.get(key).map(|v| v.len()).unwrap_or(0);
                         format!(":{}\r\n", len).into_bytes()
                     }
+                    "LPOP" => {
+                        let key = parts.get(4).copied().unwrap_or("");
+                        let mut map = list.lock().unwrap();
+                        match map.get_mut(key) {
+                            Some(v) if !v.is_empty() => {
+                                let val = v.remove(0);
+                                format!("${}\r\n{}\r\n", val.len(), val).into_bytes()
+                            }
+                            _ => b"$-1\r\n".to_vec(),
+                        }
+                    }
                     "RPUSH" => insert_into_vector(false, &parts, &list),
                     "LPUSH" => insert_into_vector(true, &parts, &list),
                     "LRANGE" => {
